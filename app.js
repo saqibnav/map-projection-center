@@ -19,6 +19,7 @@
   const showGraticule = document.getElementById("show-graticule");
   const showEquator = document.getElementById("show-equator");
   const showTissot = document.getElementById("show-tissot");
+  const showHeatmap = document.getElementById("show-heatmap");
   const resetBtn = document.getElementById("reset-btn");
   const projRadios = document.querySelectorAll('input[name="proj"]');
 
@@ -36,26 +37,33 @@
 
   // --- Projection ---
   function createProjection() {
-    const type = projType === "robinson" ? "robinson" : "mercator";
-    return Geo.createProjection(type, {
-      rotate: [-centerLon, -equatorLat, 0],
-      center: [0, centerLat - equatorLat],
-      zoom: zoomLevel,
-      width: width,
-      height: height,
-      clipExtent: [[0, 0], [width, height]]
-    });
+    let base;
+    if (projType === "robinson") {
+      base = d3.geoRobinson()
+        .rotate([-centerLon, -equatorLat, 0])
+        .center([0, centerLat - equatorLat])
+        .fitSize([width, height], { type: "Sphere" })
+        .precision(0.1);
+    } else {
+      base = d3.geoMercator()
+        .rotate([-centerLon, -equatorLat, 0])
+        .center([0, centerLat - equatorLat])
+        .fitSize([width, height], { type: "Sphere" })
+        .precision(0.1);
+    }
+
+    base.scale(base.scale() * zoomLevel);
+    return base.clipExtent([[0, 0], [width, height]]);
   }
 
   function getRotation() {
-    return Geo.createRotation(-centerLon, -equatorLat, 0);
+    return d3.geoRotation([-centerLon, -equatorLat, 0]);
   }
 
   // --- Distortion color scale ---
-  const distortionColor = Geo.createColorScale(
-    ["#2196f3", "#4caf50", "#ffeb3b", "#ff9800", "#f44336"],
-    [1, 5]
-  );
+  const distortionColor = d3.scaleSequential(d3.interpolateRgbBasis([
+    "#2196f3", "#4caf50", "#ffeb3b", "#ff9800", "#f44336"
+  ])).domain([1, 3]);
 
   // --- Rendering ---
   let renderQueued = false;
@@ -72,7 +80,7 @@
   function render() {
     if (!land) return;
     const projection = createProjection();
-    const path = Geo.createPath(projection, ctx);
+    const path = d3.geoPath(projection, ctx);
 
     // Dark background for non-map area
     ctx.fillStyle = "#2c3e50";
@@ -81,13 +89,18 @@
     // 1. Ocean
     ctx.beginPath();
     path({ type: "Sphere" });
-    ctx.fillStyle = "#b8dee6";
+    ctx.fillStyle = "#4da8c4";
     ctx.fill();
+
+    // 1b. Main map heatmap
+    if (showHeatmap.checked) {
+      drawMainHeatmap(projection);
+    }
 
     // 2. Land
     ctx.beginPath();
     path(land);
-    ctx.fillStyle = "#d4dfc2";
+    ctx.fillStyle = showHeatmap.checked ? "rgba(212, 223, 194, 0.45)" : "#d4dfc2";
     ctx.fill();
 
     // 3. Borders
@@ -100,7 +113,7 @@
     // 4. Graticule
     if (showGraticule.checked) {
       ctx.beginPath();
-      path(Geo.geoGraticule10());
+      path(d3.geoGraticule10());
       ctx.strokeStyle = "rgba(0, 0, 0, 0.07)";
       ctx.lineWidth = 0.5;
       ctx.stroke();
@@ -131,13 +144,13 @@
     const cx = width - padding - radius;
     const cy = height - padding - radius;
 
-    const globeProj = Geo.createProjection("orthographic", {
-      rotate: [-centerLon, -centerLat, 0],
-      manualScale: radius - 2,
-      translate: [cx, cy],
-      width: 0, height: 0
-    });
-    const globePath = Geo.createPath(globeProj, ctx);
+    const globeProj = d3.geoOrthographic()
+      .rotate([-centerLon, -centerLat, 0])
+      .translate([cx, cy])
+      .scale(radius - 2)
+      .clipAngle(90)
+      .precision(0.5);
+    const globePath = d3.geoPath(globeProj, ctx);
 
     // Shadow + white backing
     ctx.save();
@@ -212,7 +225,7 @@
     ctx.textBaseline = "bottom";
     ctx.fillText("1\u00d7", legendX, legendY - 3);
     ctx.textAlign = "right";
-    ctx.fillText("5\u00d7+", legendX + legendW, legendY - 3);
+    ctx.fillText("3\u00d7+", legendX + legendW, legendY - 3);
     ctx.textAlign = "center";
     ctx.fillText("Scale factor", cx, legendY - 14);
   }
@@ -248,7 +261,7 @@
         if (Math.abs(cosLat) < 0.01) continue;
         const k = 1 / Math.abs(cosLat);
 
-        const color = distortionColor(Math.min(k, 5));
+        const color = d3.rgb(distortionColor(Math.min(k, 3)));
 
         for (let dy = 0; dy < step && (py + dy) < size; dy++) {
           for (let dx = 0; dx < step && (px + dx) < size; dx++) {
@@ -272,6 +285,53 @@
     ctx.restore();
   }
 
+  // --- Main map heatmap ---
+  const mainOffscreen = document.createElement("canvas");
+  const mainOffCtx = mainOffscreen.getContext("2d");
+
+  function drawMainHeatmap(projection) {
+    const step = 3;
+    mainOffscreen.width = width;
+    mainOffscreen.height = height;
+
+    const imageData = mainOffCtx.createImageData(width, height);
+    const data = imageData.data;
+    const rotate = getRotation();
+
+    for (let py = 0; py < height; py += step) {
+      for (let px = 0; px < width; px += step) {
+        const lonlat = projection.invert([px, py]);
+        if (!lonlat || isNaN(lonlat[0])) continue;
+
+        const rotated = rotate(lonlat);
+        const latRad = rotated[1] * Math.PI / 180;
+        const cosLat = Math.cos(latRad);
+        if (Math.abs(cosLat) < 0.01) continue;
+        const k = 1 / Math.abs(cosLat);
+
+        const color = d3.rgb(distortionColor(Math.min(k, 3)));
+
+        for (let dy = 0; dy < step && (py + dy) < height; dy++) {
+          for (let dx = 0; dx < step && (px + dx) < width; dx++) {
+            const i = ((py + dy) * width + (px + dx)) * 4;
+            data[i] = color.r;
+            data[i + 1] = color.g;
+            data[i + 2] = color.b;
+            data[i + 3] = 140;
+          }
+        }
+      }
+    }
+    mainOffCtx.putImageData(imageData, 0, 0);
+
+    ctx.save();
+    ctx.beginPath();
+    d3.geoPath(projection, ctx)({ type: "Sphere" });
+    ctx.clip();
+    ctx.drawImage(mainOffscreen, 0, 0);
+    ctx.restore();
+  }
+
   // --- Great circle ---
   function drawGreatCircle(projection, path) {
     const rotate = getRotation();
@@ -290,11 +350,12 @@
 
   // --- Tissot indicatrices ---
   function drawTissot(projection, path) {
+    const circle = d3.geoCircle().precision(1).radius(2.5);
     for (let lon = -180; lon < 180; lon += 30) {
       for (let lat = -80; lat <= 80; lat += 20) {
-        const circle = Geo.geoCircle([lon, lat], 2.5, 1);
+        circle.center([lon, lat]);
         ctx.beginPath();
-        path(circle);
+        path(circle());
         ctx.fillStyle = "rgba(192, 57, 43, 0.2)";
         ctx.fill();
         ctx.strokeStyle = "rgba(192, 57, 43, 0.5)";
@@ -317,7 +378,7 @@
       const name = countryNames[country.id] || "";
       if (!name) continue;
 
-      const geoCentroid = Geo.geoCentroid(country);
+      const geoCentroid = d3.geoCentroid(country);
       const projected = projection(geoCentroid);
       if (!projected || isNaN(projected[0])) continue;
 
@@ -462,7 +523,7 @@
     });
   });
 
-  [showGraticule, showEquator, showTissot].forEach((cb) => {
+  [showGraticule, showEquator, showTissot, showHeatmap].forEach((cb) => {
     cb.addEventListener("change", () => {
       queueRender();
     });
@@ -476,17 +537,17 @@
   // --- Init ---
   resize();
 
-  const world = await Geo.loadJson(
+  const world = await d3.json(
     "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"
   );
 
-  land = Geo.topoFeature(world, world.objects.land);
-  borders = Geo.topoMesh(world, world.objects.countries, (a, b) => a !== b);
-  countries = Geo.topoFeature(world, world.objects.countries);
+  land = topojson.feature(world, world.objects.land);
+  borders = topojson.mesh(world, world.objects.countries, (a, b) => a !== b);
+  countries = topojson.feature(world, world.objects.countries);
 
-  // Load country names (non-blocking)
+  // Load country names (non-blocking — labels just won't show if this fails)
   try {
-    const namesResp = await Geo.loadTsv(
+    const namesResp = await d3.tsv(
       "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.tsv"
     );
     for (const row of namesResp) {

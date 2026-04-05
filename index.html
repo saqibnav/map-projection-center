@@ -29,6 +29,7 @@
       <label><input type="checkbox" id="show-graticule" checked> Graticule</label>
       <label><input type="checkbox" id="show-equator" checked> Great Circle (1&times; line)</label>
       <label><input type="checkbox" id="show-tissot"> Tissot Indicatrices</label>
+      <label><input type="checkbox" id="show-heatmap"> Distortion Heatmap</label>
     </fieldset>
 
     <button id="reset-btn">Reset</button>
@@ -38,7 +39,9 @@
     <span id="cursor-info">&mdash;</span>
   </div>
 
-  <script src="geo.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4/dist/d3-geo-projection.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
