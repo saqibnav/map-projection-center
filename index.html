@@ -10,34 +10,29 @@
   <canvas id="map-canvas"></canvas>
 
   <div id="controls">
-    <div id="controls-header">
-      <h1>Projection Explorer</h1>
-      <button id="collapse-btn" aria-label="Toggle controls">&#x25BC;</button>
+    <h1>Projection Explorer</h1>
+
+    <fieldset class="control-group">
+      <legend>Projection</legend>
+      <label><input type="radio" name="proj" value="mercator" checked> Oblique Mercator</label>
+      <label><input type="radio" name="proj" value="robinson"> Robinson</label>
+    </fieldset>
+
+    <div class="control-group">
+      <label>Equator latitude: <strong id="equator-val">0.0</strong>&deg;</label>
+      <label>Center longitude: <strong id="center-val">0.0</strong>&deg;</label>
+      <p class="hint">Left-drag to pan longitude. Right-drag to tilt equator. Scroll to zoom.</p>
     </div>
 
-    <div id="controls-body">
-      <fieldset class="control-group">
-        <legend>Projection</legend>
-        <label><input type="radio" name="proj" value="mercator" checked> Oblique Mercator</label>
-        <label><input type="radio" name="proj" value="robinson"> Robinson</label>
-      </fieldset>
+    <fieldset class="control-group">
+      <legend>Distortion Layers</legend>
+      <label><input type="checkbox" id="show-graticule" checked> Graticule</label>
+      <label><input type="checkbox" id="show-equator" checked> Great Circle (1&times; line)</label>
+      <label><input type="checkbox" id="show-tissot"> Tissot Indicatrices</label>
+      <label><input type="checkbox" id="show-heatmap"> Distortion Heatmap</label>
+    </fieldset>
 
-      <div class="control-group">
-        <label>Equator latitude: <strong id="equator-val">0.0</strong>&deg;</label>
-        <label>Center longitude: <strong id="center-val">0.0</strong>&deg;</label>
-        <p class="hint">Drag to pan. Two-finger/right-drag to tilt equator. Scroll to zoom.</p>
-      </div>
-
-      <fieldset class="control-group">
-        <legend>Distortion Layers</legend>
-        <label><input type="checkbox" id="show-graticule" checked> Graticule</label>
-        <label><input type="checkbox" id="show-equator" checked> Great Circle (1&times; line)</label>
-        <label><input type="checkbox" id="show-tissot"> Tissot Indicatrices</label>
-        <label><input type="checkbox" id="show-heatmap"> Distortion Heatmap</label>
-      </fieldset>
-
-      <button id="reset-btn">Reset</button>
-    </div>
+    <button id="reset-btn">Reset</button>
   </div>
 
   <div id="cursor-bar">

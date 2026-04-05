@@ -42,49 +42,12 @@ body {
   z-index: 10;
 }
 
-/* --- Controls header with collapse toggle --- */
-#controls-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 #controls h1 {
   font-size: 0.75rem;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: rgba(255, 255, 255, 0.4);
-  margin: 0;
-}
-
-#collapse-btn {
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 0.75rem;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
-  transition: color 0.15s, background 0.15s;
-  line-height: 1;
-}
-
-#collapse-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-#controls.collapsed #controls-body {
-  display: none;
-}
-
-#controls.collapsed #collapse-btn {
-  transform: rotate(-90deg);
-}
-
-#controls.collapsed {
-  gap: 0;
 }
 
 .control-group {
