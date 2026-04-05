@@ -164,18 +164,106 @@ const Geo = (function () {
       return len < 1e-10 ? null : { x: 0, y: y / len, z: z / len };
     }
 
-    function drawRingFlat(coords) {
+    // --- Flat projection: polygon rings (after antimeridian split) ---
+    function drawRingPoly(coords) {
+      let started = false;
+      for (const c of coords) {
+        const pt = projection(c);
+        if (!pt) { started = false; continue; }
+        if (!started) { ctx.moveTo(pt[0], pt[1]); started = true; }
+        else ctx.lineTo(pt[0], pt[1]);
+      }
+    }
+
+    // --- Flat projection: line strings (moveTo at antimeridian) ---
+    const halfW = P.scale * (BOUNDS[P.type] ? BOUNDS[P.type][0] / 2 : PI);
+    function drawRingLine(coords) {
       let started = false, px = 0;
       for (const c of coords) {
         const pt = projection(c);
         if (!pt) { started = false; continue; }
-        if (started && Math.abs(pt[0] - px) > P.scale * PI) started = false;
+        if (started && Math.abs(pt[0] - px) > halfW) started = false;
         if (!started) { ctx.moveTo(pt[0], pt[1]); started = true; }
         else ctx.lineTo(pt[0], pt[1]);
         px = pt[0];
       }
     }
 
+    // --- Antimeridian clipping: split a polygon ring at ±180° rotated longitude ---
+    function splitAtAntimeridian(ring) {
+      const rot = P.rotation;
+      const n = ring.length;
+      if (n < 3) return [ring];
+
+      const rots = ring.map(c => rot(c));
+
+      // Detect crossings
+      const crossings = [];
+      for (let i = 0; i < n - 1; i++) {
+        const dlon = rots[i + 1][0] - rots[i][0];
+        if (Math.abs(dlon) > 180) {
+          const a = rots[i], b = rots[i + 1];
+          const sign = a[0] > 0 ? 1 : -1;
+          const bAdj = b[0] + (sign > 0 ? 360 : -360);
+          const t = (sign * 180 - a[0]) / (bAdj - a[0]);
+          const lat = a[1] + t * (b[1] - a[1]);
+          crossings.push({ idx: i, lat, sign });
+        }
+      }
+
+      if (crossings.length === 0) return [ring];
+      if (crossings.length % 2 !== 0) return [ring];
+
+      // Build segments between crossings
+      const segs = [];
+      let pts = [];
+      let startLat = null, startSide = null;
+
+      for (let i = 0; i < n; i++) {
+        pts.push(ring[i]);
+        const cross = crossings.find(c => c.idx === i);
+        if (cross) {
+          // End segment at near boundary
+          pts.push(rot.invert([cross.sign * 179.99, cross.lat]));
+          segs.push({ pts, startLat, startSide, endLat: cross.lat, endSide: cross.sign });
+          // Start new segment from far boundary
+          pts = [rot.invert([-cross.sign * 179.99, cross.lat])];
+          startLat = cross.lat;
+          startSide = -cross.sign;
+        }
+      }
+      segs.push({ pts, startLat, startSide, endLat: null, endSide: null });
+
+      // Merge first and last segments (ring wraps)
+      if (segs.length > 1) {
+        const last = segs.pop();
+        const first = segs[0];
+        segs[0] = {
+          pts: last.pts.concat(first.pts),
+          startLat: last.startLat, startSide: last.startSide,
+          endLat: first.endLat, endSide: first.endSide
+        };
+      }
+
+      // Close each segment by walking along the antimeridian
+      const result = [];
+      for (const s of segs) {
+        const coords = [...s.pts];
+        if (s.endLat !== null && s.startLat !== null) {
+          const side = s.endSide;
+          const from = s.endLat, to = s.startLat;
+          const steps = Math.max(2, Math.ceil(Math.abs(to - from) / 5));
+          for (let j = 1; j <= steps; j++) {
+            coords.push(rot.invert([side * 179.99, from + (j / steps) * (to - from)]));
+          }
+        }
+        coords.push(coords[0]);
+        result.push(coords);
+      }
+      return result;
+    }
+
+    // --- Orthographic ring renderer ---
     function drawRingOrtho(coords) {
       let prev = null, started = false;
       for (const c of coords) {
@@ -205,7 +293,15 @@ const Geo = (function () {
       }
     }
 
-    const drawRing = isOrtho ? drawRingOrtho : drawRingFlat;
+    // --- Dispatch helpers ---
+    function drawPolyRing(ring) {
+      if (isOrtho) drawRingOrtho(ring);
+      else splitAtAntimeridian(ring).forEach(drawRingPoly);
+    }
+    function drawLineRing(coords) {
+      if (isOrtho) drawRingOrtho(coords);
+      else drawRingLine(coords);
+    }
 
     function renderSphere() {
       if (isOrtho) {
@@ -235,10 +331,10 @@ const Geo = (function () {
         case 'Feature': render(geom.geometry); break;
         case 'FeatureCollection': geom.features.forEach(render); break;
         case 'GeometryCollection': geom.geometries.forEach(render); break;
-        case 'Polygon': geom.coordinates.forEach(drawRing); break;
-        case 'MultiPolygon': geom.coordinates.forEach(p => p.forEach(drawRing)); break;
-        case 'LineString': drawRing(geom.coordinates); break;
-        case 'MultiLineString': geom.coordinates.forEach(drawRing); break;
+        case 'Polygon': geom.coordinates.forEach(drawPolyRing); break;
+        case 'MultiPolygon': geom.coordinates.forEach(p => p.forEach(drawPolyRing)); break;
+        case 'LineString': drawLineRing(geom.coordinates); break;
+        case 'MultiLineString': geom.coordinates.forEach(drawLineRing); break;
       }
     }
 
