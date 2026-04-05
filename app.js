@@ -8,7 +8,6 @@
   let land, borders, countries;
 
   // --- Country name lookup (ISO 3166-1 numeric → name) ---
-  // Loaded from CDN alongside the topology
   let countryNames = {};
 
   // --- DOM refs ---
@@ -37,33 +36,26 @@
 
   // --- Projection ---
   function createProjection() {
-    let base;
-    if (projType === "robinson") {
-      base = d3.geoRobinson()
-        .rotate([-centerLon, -equatorLat, 0])
-        .center([0, centerLat - equatorLat])
-        .fitSize([width, height], { type: "Sphere" })
-        .precision(0.1);
-    } else {
-      base = d3.geoMercator()
-        .rotate([-centerLon, -equatorLat, 0])
-        .center([0, centerLat - equatorLat])
-        .fitSize([width, height], { type: "Sphere" })
-        .precision(0.1);
-    }
-
-    base.scale(base.scale() * zoomLevel);
-    return base.clipExtent([[0, 0], [width, height]]);
+    const type = projType === "robinson" ? "robinson" : "mercator";
+    return Geo.createProjection(type, {
+      rotate: [-centerLon, -equatorLat, 0],
+      center: [0, centerLat - equatorLat],
+      zoom: zoomLevel,
+      width: width,
+      height: height,
+      clipExtent: [[0, 0], [width, height]]
+    });
   }
 
   function getRotation() {
-    return d3.geoRotation([-centerLon, -equatorLat, 0]);
+    return Geo.createRotation(-centerLon, -equatorLat, 0);
   }
 
   // --- Distortion color scale ---
-  const distortionColor = d3.scaleSequential(d3.interpolateRgbBasis([
-    "#2196f3", "#4caf50", "#ffeb3b", "#ff9800", "#f44336"
-  ])).domain([1, 5]);
+  const distortionColor = Geo.createColorScale(
+    ["#2196f3", "#4caf50", "#ffeb3b", "#ff9800", "#f44336"],
+    [1, 5]
+  );
 
   // --- Rendering ---
   let renderQueued = false;
@@ -80,7 +72,7 @@
   function render() {
     if (!land) return;
     const projection = createProjection();
-    const path = d3.geoPath(projection, ctx);
+    const path = Geo.createPath(projection, ctx);
 
     // Dark background for non-map area
     ctx.fillStyle = "#2c3e50";
@@ -108,7 +100,7 @@
     // 4. Graticule
     if (showGraticule.checked) {
       ctx.beginPath();
-      path(d3.geoGraticule10());
+      path(Geo.geoGraticule10());
       ctx.strokeStyle = "rgba(0, 0, 0, 0.07)";
       ctx.lineWidth = 0.5;
       ctx.stroke();
@@ -139,13 +131,13 @@
     const cx = width - padding - radius;
     const cy = height - padding - radius;
 
-    const globeProj = d3.geoOrthographic()
-      .rotate([-centerLon, -centerLat, 0])
-      .translate([cx, cy])
-      .scale(radius - 2)
-      .clipAngle(90)
-      .precision(0.5);
-    const globePath = d3.geoPath(globeProj, ctx);
+    const globeProj = Geo.createProjection("orthographic", {
+      rotate: [-centerLon, -centerLat, 0],
+      manualScale: radius - 2,
+      translate: [cx, cy],
+      width: 0, height: 0
+    });
+    const globePath = Geo.createPath(globeProj, ctx);
 
     // Shadow + white backing
     ctx.save();
@@ -226,8 +218,6 @@
   }
 
   // --- Globe heatmap (always shown) ---
-  // Uses an offscreen canvas so we can drawImage with compositing,
-  // avoiding putImageData which ignores transforms and overwrites pixels.
   const offscreen = document.createElement("canvas");
   const offCtx = offscreen.getContext("2d");
 
@@ -258,7 +248,7 @@
         if (Math.abs(cosLat) < 0.01) continue;
         const k = 1 / Math.abs(cosLat);
 
-        const color = d3.rgb(distortionColor(Math.min(k, 5)));
+        const color = distortionColor(Math.min(k, 5));
 
         for (let dy = 0; dy < step && (py + dy) < size; dy++) {
           for (let dx = 0; dx < step && (px + dx) < size; dx++) {
@@ -273,9 +263,8 @@
     }
     offCtx.putImageData(imageData, 0, 0);
 
-    // Draw the offscreen heatmap onto the main canvas
+    // Draw the offscreen heatmap onto the main canvas clipped to globe
     ctx.save();
-    // Clip to the globe circle so heatmap doesn't bleed into corners
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
     ctx.clip();
@@ -301,12 +290,11 @@
 
   // --- Tissot indicatrices ---
   function drawTissot(projection, path) {
-    const circle = d3.geoCircle().precision(1).radius(2.5);
     for (let lon = -180; lon < 180; lon += 30) {
       for (let lat = -80; lat <= 80; lat += 20) {
-        circle.center([lon, lat]);
+        const circle = Geo.geoCircle([lon, lat], 2.5, 1);
         ctx.beginPath();
-        path(circle());
+        path(circle);
         ctx.fillStyle = "rgba(192, 57, 43, 0.2)";
         ctx.fill();
         ctx.strokeStyle = "rgba(192, 57, 43, 0.5)";
@@ -329,32 +317,26 @@
       const name = countryNames[country.id] || "";
       if (!name) continue;
 
-      // Use the geographic centroid projected to screen coords.
-      // This gives a stable position that doesn't drift when the country wraps.
-      const geoCentroid = d3.geoCentroid(country);
+      const geoCentroid = Geo.geoCentroid(country);
       const projected = projection(geoCentroid);
       if (!projected || isNaN(projected[0])) continue;
 
       const [px, py] = projected;
 
-      // Skip if the projected centroid is off-screen
       if (px < margin || px > width - margin || py < margin || py > height - margin) continue;
 
-      // Check that the path centroid agrees with the geographic centroid.
-      // If they diverge significantly, the country is split across the map boundary.
+      // Check that the path centroid agrees with the geographic centroid
       const pathCentroid = path.centroid(country);
       if (!pathCentroid || isNaN(pathCentroid[0])) continue;
       const dist = Math.hypot(px - pathCentroid[0], py - pathCentroid[1]);
       if (dist > 50) continue;
 
-      // Get bounding box for sizing
       const bounds = path.bounds(country);
       if (!bounds || !isFinite(bounds[0][0])) continue;
       const bw = bounds[1][0] - bounds[0][0];
       const bh = bounds[1][1] - bounds[0][1];
       if (bw <= 0 || bh <= 0) continue;
 
-      // Pick font size proportional to the country's screen size
       const minDim = Math.min(bw, bh);
       const maxDim = Math.max(bw, bh);
       let fontSize = Math.min(minDim * 0.35, maxDim * 0.12);
@@ -362,11 +344,9 @@
       if (fontSize < 8) continue;
       fontSize = Math.min(fontSize, 11);
 
-      const bold = false;
-      ctx.font = `${bold ? "600" : "400"} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      ctx.font = `400 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       const metrics = ctx.measureText(name);
 
-      // Skip if text is wider than the bounding box
       if (metrics.width > bw * 0.95) continue;
 
       ctx.fillStyle = "rgba(50, 50, 50, 0.7)";
@@ -388,7 +368,7 @@
   }
 
   // --- Drag: left = pan longitude, right = tilt equator latitude ---
-  let dragMode = null; // "pan" or "tilt"
+  let dragMode = null;
   let dragStartX, dragStartY;
   let dragStartLon, dragStartEquatorLat;
 
@@ -496,24 +476,23 @@
   // --- Init ---
   resize();
 
-  const world = await d3.json(
+  const world = await Geo.loadJson(
     "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"
   );
 
-  land = topojson.feature(world, world.objects.land);
-  borders = topojson.mesh(world, world.objects.countries, (a, b) => a !== b);
-  countries = topojson.feature(world, world.objects.countries);
+  land = Geo.topoFeature(world, world.objects.land);
+  borders = Geo.topoMesh(world, world.objects.countries, (a, b) => a !== b);
+  countries = Geo.topoFeature(world, world.objects.countries);
 
-  // Load country names (non-blocking — labels just won't show if this fails)
+  // Load country names (non-blocking)
   try {
-    const namesResp = await d3.tsv(
+    const namesResp = await Geo.loadTsv(
       "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.tsv"
     );
     for (const row of namesResp) {
       countryNames[row.id] = row.name;
     }
   } catch (e) {
-    // Fall back to properties.name if available, otherwise no labels
     for (const f of countries.features) {
       if (f.properties && f.properties.name) {
         countryNames[f.id] = f.properties.name;
