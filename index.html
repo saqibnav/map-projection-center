@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oblique Mercator Projection Explorer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="map-canvas"></canvas>
+
+  <div id="controls">
+    <h1>Projection Explorer</h1>
+
+    <fieldset class="control-group">
+      <legend>Projection</legend>
+      <label><input type="radio" name="proj" value="mercator" checked> Oblique Mercator</label>
+      <label><input type="radio" name="proj" value="robinson"> Robinson</label>
+    </fieldset>
+
+    <div class="control-group">
+      <label>Equator latitude: <strong id="equator-val">0.0</strong>&deg;</label>
+      <label>Center longitude: <strong id="center-val">0.0</strong>&deg;</label>
+      <p class="hint">Left-drag to pan longitude. Right-drag to tilt equator. Scroll to zoom.</p>
+    </div>
+
+    <fieldset class="control-group">
+      <legend>Distortion Layers</legend>
+      <label><input type="checkbox" id="show-graticule" checked> Graticule</label>
+      <label><input type="checkbox" id="show-equator" checked> Great Circle (1&times; line)</label>
+      <label><input type="checkbox" id="show-tissot"> Tissot Indicatrices</label>
+    </fieldset>
+
+    <button id="reset-btn">Reset</button>
+  </div>
+
+  <div id="cursor-bar">
+    <span id="cursor-info">&mdash;</span>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4/dist/d3-geo-projection.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
